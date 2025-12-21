@@ -1,0 +1,34 @@
+# Use US layout with US variant
+KEYMAPOPTS="us us"
+
+HOSTNAMEOPTS="reveries"
+DEVDOPTS=udev
+PROXYOPTS=none
+
+# Contents of /etc/network/interfaces
+INTERFACESOPTS="auto lo
+iface lo inet loopback
+
+auto wlan0
+iface wlan0 inet dhcp
+hostname reveries
+"
+
+# Set timezone to UTC
+TIMEZONEOPTS="-z Asia/Kolkata"
+
+# Add first mirror (CDN)
+APKREPOSOPTS="-1 -c"
+
+# Create admin user
+USEROPTS="-a -u -g audio,input,video,netdev bingobango"
+
+SSHDOPTS="openssh"
+NTPOPTS="busybox"
+
+# Disk
+DISKOPTS="-m sys /dev/mmcblk0"
+
+# Setup storage with label APKOVL for config storage
+# LBUOPTS=none
+# APKCACHEOPTS=none
