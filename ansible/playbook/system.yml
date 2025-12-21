@@ -17,8 +17,6 @@
           - wayland
           - wlroots
           - libinput
-          - cage
-          - gnome-clocks
           - xclock
           - mesa-dri-gallium
           - mesa-egl
@@ -67,12 +65,9 @@
         mode: '0644'
         content: |
           echo "Starting kiosk..."
-          if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+          unset DISPLAY
+          if [ "$(tty)" = "/dev/tty1" ]; then
               export XDG_RUNTIME_DIR=/run/user/$(id -u)
-              export LIBSEAT_BACKEND=seatd
-              export WLR_RENDERER=gles2
-              export WLR_LIBINPUT_NO_DEVICES=1
-
               sleep 1
-              exec cage xclock
+              exec /home/bingobango/dashboard
           fi

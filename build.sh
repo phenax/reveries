@@ -53,6 +53,15 @@ setup-via-ssh() {
   _run "sync; umount -f /media/mmcblk0p1/"
 }
 
+build-dashboard() {
+  cd dashboard;
+  nix-shell -p pkgsCross.aarch64-multiplatform.libGL \
+             pkgsCross.aarch64-multiplatform.libdrm \
+             pkgsCross.aarch64-multiplatform.libgbm \
+             pkgsCross.aarch64-multiplatform.pkg-config \
+    --run 'zig build -Doptimize=ReleaseSmall -Dtarget=aarch64-linux-musl -Dplatform=drm'
+}
+
 cmd="$1"; shift 1;
 case "$cmd" in
   configure) cd ansible && ansible-playbook -i host.ini playbook/system.yml --ask-become-pass ;;
@@ -61,9 +70,9 @@ case "$cmd" in
   unmount-image) unmount-image ;;
   write-image) write-image ;;
   setup-via-ssh) setup-via-ssh ;;
+  build-dashboard) build-dashboard ;;
   shell) _runuser ;;
   run) _runuser "$@" ;;
   runroot) _run "$@" ;;
-  config-sync) config-sync ;;
 esac
 
