@@ -1,0 +1,78 @@
+---
+- hosts: reveries
+  gather_facts: false
+  vars:
+    ansible_become_method: doas
+  become: true
+  tasks:
+    - name: Setup packages
+      community.general.apk:
+        name:
+          - vim
+          - curl
+          - wget
+          - seatd
+          - seatd-openrc
+          - xwayland
+          - wayland
+          - wlroots
+          - libinput
+          - cage
+          - gnome-clocks
+          - xclock
+          - mesa-dri-gallium
+          - mesa-egl
+          - mesa-gbm
+          - mesa-gles
+          - libdrm
+          - ttf-dejavu
+          - eudev
+          - dbus
+          - polkit
+          - util-linux
+        state: present
+        update_cache: yes
+    - name: Configure user groups
+      user:
+        name: "{{ ansible_user }}"
+        groups: video,input,seat
+        append: yes
+    - name: Ensure dbus is running
+      service:
+        name: dbus
+        state: started
+        enabled: yes
+    - name: Enable and start seatd service
+      service:
+        name: seatd
+        state: started
+        enabled: yes
+    - name: Configure tty1 for autologin in /etc/inittab
+      ansible.builtin.replace:
+        path: /etc/inittab
+        regexp: '^tty1::respawn:/sbin/getty(.*)tty1'
+        replace: 'tty1::respawn:/sbin/agetty --autologin {{ ansible_user }} --noclear tty1 38400 linux'
+    - name: Create XDG_RUNTIME_DIR
+      file:
+        path: /run/user/{{ ansible_user_uid | default('1000') }}
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0700'
+    - name: Create .profile to launch kiosk on login
+      ansible.builtin.copy:
+        dest: "/home/{{ ansible_user }}/.profile"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+        content: |
+          echo "Starting kiosk..."
+          if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+              export XDG_RUNTIME_DIR=/run/user/$(id -u)
+              export LIBSEAT_BACKEND=seatd
+              export WLR_RENDERER=gles2
+              export WLR_LIBINPUT_NO_DEVICES=1
+
+              sleep 1
+              exec cage xclock
+          fi

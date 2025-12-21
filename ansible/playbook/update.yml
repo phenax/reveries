@@ -1,0 +1,11 @@
+---
+- hosts: reveries
+  gather_facts: false
+  vars:
+    ansible_become_method: doas
+  tasks:
+    - name: Update cache and upgrade packages
+      become: true
+      community.general.apk:
+        upgrade: true
+        update_cache: true

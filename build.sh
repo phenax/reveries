@@ -21,8 +21,7 @@ create-image() {
   mkdir -p tmp/image
   download-img-file
   mount-image
-  sudo cp -f usercfg.txt alpine-setup-config tmp/headless.apkovl.tar.gz wpa_supplicant.conf unattended.sh -t tmp/image
-  unmount-image
+  sudo cp -f usercfg.txt alpine-setup-config tmp/headless.apkovl.tar.gz wpa_supplicant.conf unattended.sh -t tmp/image unmount-image
 }
 
 unmount-image() {
@@ -37,7 +36,7 @@ mount-image() {
 }
 
 write-image() {
-  nix-shell -p rpi-imager --run "sudo rpi-imager --cli 'tmp/alpine-rpi-3.23.2-aarch64.img' /dev/sda"
+  sudo rpi-imager --cli 'tmp/alpine-rpi-3.23.2-aarch64.img' /dev/sda
 }
 
 _run() {
@@ -56,6 +55,7 @@ setup-via-ssh() {
 
 cmd="$1"; shift 1;
 case "$cmd" in
+  configure) cd ansible && ansible-playbook -i host.ini playbook/system.yml --ask-become-pass ;;
   create-image) create-image ;;
   mount-image) mount-image ;;
   unmount-image) unmount-image ;;
