@@ -20,7 +20,7 @@ pub fn main() anyerror!void {
     }
     const alloc = gpa.allocator();
 
-    const clockwidget = clock.ClockWidget.new(190);
+    const clockwidget = clock.ClockWidget.new();
 
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();

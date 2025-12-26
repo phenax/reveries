@@ -25,6 +25,12 @@ pub fn build(b: *std.Build) void {
   exe.root_module.addImport("raylib", raylib);
   exe.root_module.addImport("raygui", raygui);
 
+  const pg = b.dependency("datetime", .{
+    .target = target,
+    .optimize = optimize,
+  });
+  exe.root_module.addImport("datetime", pg.module("datetime"));
+
   exe.linkLibC();
   // exe.linkSystemLibrary("GL");
   exe.linkSystemLibrary("m");

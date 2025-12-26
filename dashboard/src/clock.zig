@@ -1,59 +1,63 @@
 const std = @import("std");
 const rl = @import("raylib");
-
-pub const Time = struct {
-    hours: u8 = 0,
-    minutes: u8 = 0,
-    seconds: u8 = 0,
-
-    pub fn formatted(time: Time, alloc: std.mem.Allocator) ![]u8 {
-        const timefmt = try std.fmt.allocPrint(
-            alloc,
-            "{d:0>2}:{d:0>2}:{d:0>2}",
-            .{ time.hours, time.minutes, time.seconds },
-        );
-        return timefmt;
-    }
-};
+const dt = @import("datetime");
 
 pub const ClockWidget = struct {
-    fontSize: i32 = 180,
-    textWidthCache: i32 = 0,
-    pub fn new(fontSize: i32) ClockWidget {
-        return ClockWidget{
-            .fontSize = fontSize,
-            .textWidthCache = rl.measureText("01:00:00", fontSize) + 20,
-        };
+    pub fn new() ClockWidget {
+        return ClockWidget{};
     }
 
-    pub fn draw(clock: ClockWidget, alloc: std.mem.Allocator) error{OutOfMemory}!void {
+    pub fn draw(_: ClockWidget, alloc: std.mem.Allocator) error{OutOfMemory}!void {
         var timestr: [8:0]u8 = undefined;
+        var datestr: [64:0]u8 = undefined;
 
-        const time = getCurrentTime();
-        const timefmt = try time.formatted(alloc);
+        // TODO: Remove timezone hardcoding
+        const zone = dt.timezones.Asia.Kolkata;
+
+        var now = dt.datetime.Datetime.now();
+        now = now.shiftSeconds(zone.offsetSeconds());
+
+        const timefmt = try formatTime(now, alloc);
         defer alloc.free(timefmt);
-
         timestr[timefmt.len] = 0;
         std.mem.copyForwards(u8, &timestr, timefmt);
 
-        const x = @divFloor(rl.getScreenWidth() - clock.textWidthCache, 2);
-        const y = 30;
-        rl.drawText(&timestr, x, y, clock.fontSize, .white);
+        const datefmt = try formatDate(now, alloc);
+        defer alloc.free(datefmt);
+        datestr[datefmt.len] = 0;
+        std.mem.copyForwards(u8, &datestr, datefmt);
+
+        const width = @divFloor(rl.getScreenWidth() * 5, 9);
+
+        const timeFontSize = 140;
+        const dateFontSize = 40;
+
+        const timeTextWidth = rl.measureText(&timestr, timeFontSize);
+        const timex = @divFloor(width - timeTextWidth, 2);
+        const y = 16;
+        rl.drawText(&timestr, timex, y, timeFontSize, .white);
+
+        const dateTextWidth = rl.measureText(&datestr, dateFontSize);
+        const datex = @divFloor(width - dateTextWidth, 2);
+        rl.drawText(&datestr, datex, 180, dateFontSize, .white);
     }
 };
 
-pub fn getCurrentTime() Time {
-    // FIXME: hardcoded timezone offset
-    const tzoffset = 5 * std.time.s_per_hour + 30 * std.time.s_per_min;
-    const timestamp = @abs(std.time.timestamp() + tzoffset);
-    var epoch = std.time.epoch.EpochSeconds{ .secs = timestamp };
-    const time = epoch.getDaySeconds();
-    var hours = time.getHoursIntoDay();
-    hours = if (hours > 12) hours - 12 else hours;
+pub fn formatTime(time: dt.datetime.Datetime, alloc: std.mem.Allocator) ![]u8 {
+    const hour = if (time.time.hour > 12) time.time.hour - 12 else time.time.hour;
+    const timefmt = try std.fmt.allocPrint(
+        alloc,
+        "{d:0>2}:{d:0>2}",
+        .{ hour, time.time.minute },
+    );
+    return timefmt;
+}
 
-    return Time{
-        .hours = hours,
-        .minutes = time.getMinutesIntoHour(),
-        .seconds = time.getSecondsIntoMinute(),
-    };
+pub fn formatDate(time: dt.datetime.Datetime, alloc: std.mem.Allocator) ![]u8 {
+    const timefmt = try std.fmt.allocPrint(
+        alloc,
+        "{s}, {d} {s}",
+        .{ time.date.weekdayName(), time.date.day, time.date.monthName() },
+    );
+    return timefmt;
 }
