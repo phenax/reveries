@@ -23,7 +23,8 @@ pub fn main() anyerror!void {
     const loopAlloc = arena.allocator();
 
     const clockWidget = clock.ClockWidget.new();
-    const slideshowWidget = try slideshow.SlideshowWidget.new(alloc);
+    var slideshowWidget = try slideshow.SlideshowWidget.new(alloc);
+    defer slideshowWidget.deinit(alloc) catch {};
 
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
