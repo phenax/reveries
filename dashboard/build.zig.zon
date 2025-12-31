@@ -10,6 +10,10 @@
             .url = "git+https://github.com/frmdstryr/zig-datetime?ref=master#3a39a21e6e34dcb0ade0ff828d0914d40ba535f3",
             .hash = "datetime-0.8.0-cJNXzP_YAQBxQ5hkNNP6ScnG5XsqciJmeP5RVV4xwCBA",
         },
+        .xmlread = .{
+            .url = "git+https://codeberg.org/kudu/xmlread#4087dc2411c6162d6a212b54dbc665985e092318",
+            .hash = "xmlread-0.1.0-Ha9x8UnWAQCClusO147fBoAx8xselMtmAOiJH_ZH2T0C",
+        },
     },
     .paths = .{""},
     .fingerprint = 0x5c94fff8f36df636,

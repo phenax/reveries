@@ -1,0 +1,295 @@
+const std = @import("std");
+const rl = @import("raylib");
+const xml = @import("xml");
+const dt = @import("datetime");
+const ics_parser = @import("./ics_parser.zig");
+const dtlocal = @import("./datetime.zig");
+
+const CalendarItem = ics_parser.CalendarItem;
+const Datetime = dt.datetime.Datetime;
+
+const defaultRefreshIntervalSeconds: i64 = 60;
+
+pub const AgendaWidget = struct {
+    caldavUrl: [:0]const u8 = "http://calendar.local/joe/Work",
+    alloc: std.mem.Allocator,
+    refreshIntervalSeconds: i64 = defaultRefreshIntervalSeconds,
+    // TODO: Remove hardcoding
+    timezone: dt.datetime.Timezone = dt.timezones.Asia.Kolkata,
+    dtstart: Datetime,
+    dtend: Datetime,
+    items: std.ArrayList(CalendarItem) = .empty,
+    errorText: ?[:0]const u8 = null,
+    lastFetchTimestamp: i64 = 0,
+
+    pub fn new(alloc: std.mem.Allocator) !AgendaWidget {
+        const refreshIntervalSeconds = defaultRefreshIntervalSeconds;
+        var agenda = AgendaWidget{
+            .alloc = alloc,
+            .dtstart = Datetime.now(),
+            .dtend = Datetime.now(),
+            .refreshIntervalSeconds = refreshIntervalSeconds,
+            // Load events 1 second after start
+            .lastFetchTimestamp = std.time.timestamp() - refreshIntervalSeconds + 1,
+        };
+        agenda.updateDateRange();
+        return agenda;
+    }
+
+    pub fn draw(agenda: *AgendaWidget, _: std.mem.Allocator) !void {
+        const boxY = 230;
+        const boxWidth = @divFloor(rl.getScreenWidth() * 5, 9);
+        const boxHeight = rl.getScreenHeight() - boxY - 20;
+
+        var y: i32 = boxY + 16;
+        const x = 16;
+        const fontSize = 20;
+
+        // rl.drawRectangleLines(0, 230, boxWidth, boxHeight, .red);
+        rl.drawLine(0, 230, boxWidth, 230, .gray);
+
+        // Draw error text
+        if (agenda.errorText) |err| {
+            rl.drawText(err, x, y + boxHeight - 20, fontSize, .red);
+        }
+
+        // Empty state
+        if (agenda.items.items.len == 0) {
+            rl.drawText("<no events>", x, y, 20, .gray);
+            agenda.refreshCalendar();
+            return;
+        }
+
+        var titleBuf: [50:0]u8 = undefined;
+        var datetimeBuf: [8:0]u8 = undefined;
+        var timerangeBuf: [18:0]u8 = undefined;
+        const maxTextChars = 34;
+        for (agenda.items.items) |item| {
+            switch (item) {
+                .vevent => |e| {
+                    const title = agenda.displayTitle("📅", e.title, maxTextChars, &titleBuf);
+                    rl.drawText(title, x, y, fontSize, .white);
+
+                    const timestr = try std.fmt.bufPrintZ(
+                        &timerangeBuf,
+                        "{s} - {s}",
+                        .{ agenda.displayTime(e.dtstart, &datetimeBuf), agenda.displayTime(e.dtend, &datetimeBuf) },
+                    );
+                    const width = rl.measureText(timestr, fontSize);
+                    rl.drawText(timestr, boxWidth - width - x, y, fontSize, .white);
+                },
+                .vtodo => |t| {
+                    const title = agenda.displayTitle("✔", t.title, maxTextChars, &titleBuf);
+                    rl.drawText(title, x, y, fontSize, .white);
+                },
+            }
+            y = y + 30;
+        }
+
+        agenda.updateDateRange();
+        agenda.refreshCalendar();
+    }
+
+    fn refreshCalendar(agenda: *AgendaWidget) void {
+        if (std.time.timestamp() - agenda.lastFetchTimestamp < agenda.refreshIntervalSeconds) return;
+
+        std.debug.print("::::: REFRESHING AGENDA\n", .{});
+        agenda.lastFetchTimestamp = std.time.timestamp();
+        agenda.errorText = "";
+        agenda.loadCalendarItems() catch |e| {
+            agenda.errorText = std.fmt.allocPrintSentinel(agenda.alloc, "Error loading calendar items: {s}", .{@errorName(e)}, 0) catch @errorName(e);
+            std.debug.print("{s}", .{@errorName(e)});
+        };
+    }
+
+    pub fn updateDateRange(agenda: *AgendaWidget) void {
+        var today = dt.datetime.Datetime.now().shiftDays(-2); // TODO: Remove shift
+        today.time.hour = 0;
+        today.time.minute = 0;
+        today.time.second = 0;
+        today.time.nanosecond = 0;
+        agenda.dtstart = today;
+        agenda.dtend = today.shiftDays(1);
+    }
+
+    fn loadCalendarItems(agenda: *AgendaWidget) !void {
+        agenda.items.clearAndFree(agenda.alloc);
+
+        var events = try agenda.fetchEvents();
+        defer events.deinit(agenda.alloc);
+        std.mem.sort(CalendarItem, events.items, {}, CalendarItem.lessThan);
+        try agenda.items.appendSlice(agenda.alloc, events.items);
+
+        var todos = try agenda.fetchTodos();
+        defer todos.deinit(agenda.alloc);
+        try agenda.items.appendSlice(agenda.alloc, todos.items);
+    }
+
+    fn fetchEvents(agenda: *AgendaWidget) !std.ArrayList(CalendarItem) {
+        var events = try agenda.searchCaldavWithRetry(try std.fmt.allocPrint(agenda.alloc,
+            \\<C:comp-filter name="VCALENDAR">
+            \\  <C:time-range start="{s}" end="{s}"/>
+            \\  <C:comp-filter name="VEVENT" />
+            \\</C:comp-filter>
+        , .{
+            try dtlocal.formatISO8601Basic(agenda.alloc, agenda.dtstart),
+            try dtlocal.formatISO8601Basic(agenda.alloc, agenda.dtend),
+        }));
+        defer events.deinit(agenda.alloc);
+        return try filterCalendarItems(agenda.alloc, events, agenda.dtstart, agenda.dtend);
+    }
+
+    fn fetchTodos(agenda: *AgendaWidget) !std.ArrayList(CalendarItem) {
+        var tasks = try agenda.searchCaldavWithRetry(try std.fmt.allocPrint(agenda.alloc,
+            \\<C:comp-filter name="VCALENDAR">
+            \\  <C:comp-filter name="VTODO" />
+            \\</C:comp-filter>
+        , .{}));
+        defer tasks.deinit(agenda.alloc);
+        return try filterCalendarItems(agenda.alloc, tasks, agenda.dtstart, agenda.dtend);
+    }
+
+    fn searchCaldavWithRetry(agenda: *AgendaWidget, filter: []u8) !std.ArrayList(CalendarItem) {
+        var retries: u8 = 0;
+        blk: while (true) {
+            retries = retries + 1;
+            const result = agenda.searchCaldav(filter) catch |err| {
+                if (retries < 3) {
+                    continue :blk;
+                } else {
+                    return err;
+                }
+            };
+            return result;
+        }
+    }
+
+    fn searchCaldav(agenda: *AgendaWidget, filter: []u8) !std.ArrayList(CalendarItem) {
+        var client = std.http.Client{ .allocator = agenda.alloc };
+        defer client.deinit();
+
+        const uri = try std.Uri.parse(agenda.caldavUrl);
+        const host = try uri.getHostAlloc(agenda.alloc);
+        const port = uri.port orelse 80;
+        const path = uri.path.toRawMaybeAlloc(agenda.alloc) catch "/";
+        const protocol = std.http.Client.Protocol.fromUri(uri) orelse .plain;
+
+        var conn = try client.connect(host, port, protocol);
+        defer client.connection_pool.release(conn);
+
+        const requestBody = try std.fmt.allocPrint(agenda.alloc,
+            \\<?xml version="1.0" encoding="utf-8" ?>
+            \\<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+            \\  <D:prop>
+            \\    <C:calendar-data/>
+            \\  </D:prop>
+            \\  <C:filter>
+            \\    {s}
+            \\  </C:filter>
+            \\</C:calendar-query>
+        , .{filter});
+
+        var writer = conn.writer();
+        try writer.print("{s} {s} HTTP/1.1\r\n", .{ "REPORT", path });
+        try writer.print("Host: {s}:{d}\r\n", .{ host, port });
+        try writer.print("Authorization: {s}\r\n", .{"joe:joe"});
+        try writer.print("Content-Length: {d}\r\n", .{requestBody.len});
+        try writer.writeAll("Content-Type: application/xml; charset=utf-8\r\n" ++
+            "Depth: 1\r\n" ++
+            "Connection: close\r\n" ++
+            "\r\n");
+        try writer.writeAll(requestBody);
+        try writer.flush();
+        try conn.end();
+
+        var reader = conn.reader();
+        const responseRaw = try reader.allocRemaining(agenda.alloc, .unlimited);
+        var resp = try agenda.parseResponse(agenda.alloc, responseRaw);
+        std.debug.print(":::::: {s}...\n", .{responseRaw[0..@min(responseRaw.len, 500)]});
+
+        var doc = try xml.tree.parse(agenda.alloc, &resp.body, null);
+        defer doc.deinit(agenda.alloc);
+
+        var items: std.ArrayList(CalendarItem) = .empty;
+
+        var walker = doc.walkElementsByName("C:calendar-data");
+        while (walker.next()) |el| {
+            const newItems = try ics_parser.parseIcs(el.text(), agenda.alloc);
+            try items.appendSlice(agenda.alloc, newItems.items);
+        }
+
+        return items;
+    }
+
+    fn filterCalendarItems(alloc: std.mem.Allocator, events: std.ArrayList(CalendarItem), dtstart: Datetime, dtend: Datetime) !std.ArrayList(CalendarItem) {
+        var filteredItems: std.ArrayList(CalendarItem) = .empty;
+
+        for (events.items) |item| {
+            switch (item) {
+                .vtodo => |*t| {
+                    if (t.due) |due| {
+                        if (due.gte(dtstart) and due.lte(dtend)) {
+                            try filteredItems.append(alloc, item);
+                        }
+                    }
+                },
+                .vevent => |*e| {
+                    if (e.dtstart) |evStart| {
+                        if (e.dtend) |evEnd| {
+                            if (evStart.gte(dtstart) and evEnd.lte(dtend)) {
+                                try filteredItems.append(alloc, item);
+                            }
+                        }
+                    }
+                },
+            }
+        }
+
+        return filteredItems;
+    }
+
+    const Resp = struct {
+        head: std.http.Client.Response.Head,
+        body: std.Io.Reader,
+    };
+
+    fn parseResponse(_: *AgendaWidget, _: std.mem.Allocator, response: []u8) !Resp {
+        var p = std.http.HeadParser{};
+        const readLen = p.feed(response);
+        if (p.state != .finished) unreachable;
+
+        const head = try std.http.Client.Response.Head.parse(response[0..readLen]);
+        const responseBody = std.Io.Reader.fixed(response[readLen..]);
+        return Resp{ .head = head, .body = responseBody };
+    }
+
+    pub fn deinit(agenda: *AgendaWidget) !void {
+        for (agenda.items.items) |item| {
+            switch (item) {
+                .vevent => |e| {
+                    agenda.alloc.free(e.title);
+                },
+                .vtodo => |t| {
+                    agenda.alloc.free(t.title);
+                },
+            }
+        }
+        agenda.items.clearAndFree(agenda.alloc);
+        agenda.items.deinit(agenda.alloc);
+    }
+
+    fn displayTime(agenda: AgendaWidget, datetime: ?dt.datetime.Datetime, buf: []u8) [*:0]const u8 {
+        if (datetime) |time| {
+            const timeAdjusted = time.shiftTimezone(agenda.timezone);
+            return dtlocal.formatTime(timeAdjusted, buf) catch "<error>";
+        } else {
+            return "";
+        }
+    }
+
+    fn displayTitle(_: AgendaWidget, prefix: []const u8, title: []u8, maxTextChars: usize, buf: []u8) [:0]const u8 {
+        const ellipsis = if (title.len > maxTextChars) "..." else "";
+        const titletrimmed = if (title.len > maxTextChars) title[0..maxTextChars] else title;
+        return std.fmt.bufPrintZ(buf, "{s} {s}{s}", .{ prefix, titletrimmed, ellipsis }) catch "<error>";
+    }
+};
