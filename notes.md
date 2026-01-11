@@ -1,6 +1,6 @@
 # Tasks
 - [ ] Fix memory leak
-- [ ] Load font
+- [X] Load font
 - [ ] Parse todo priority ics
 - [ ] Use different colors in agenda
 - [ ] Parse timezone from system (/etc/localtime)

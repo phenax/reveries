@@ -32,15 +32,27 @@ pub fn main() anyerror!void {
     rl.initWindow(screenWidth, screenHeight, "dashboard");
     defer rl.closeWindow();
 
+    const font7Segment = try rl.loadFontFromMemory(".ttf", @embedFile("./static/DSEG7Classic-Regular.ttf"), 160, null);
+    defer rl.unloadFont(font7Segment);
+    rl.setTextureFilter(font7Segment.texture, rl.TextureFilter.trilinear);
+
+    const fontData = @embedFile("./static/3270NerdFontMono-Regular.ttf");
+    const font = try rl.loadFontFromMemory(".ttf", fontData, 20, null);
+    defer rl.unloadFont(font);
+    rl.setTextureFilter(font.texture, rl.TextureFilter.trilinear);
+    const fontLg = try rl.loadFontFromMemory(".ttf", fontData, 60, null);
+    defer rl.unloadFont(fontLg);
+    rl.setTextureFilter(fontLg.texture, rl.TextureFilter.trilinear);
+
     rl.setTargetFPS(2);
 
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
         rl.clearBackground(.black);
 
-        try clockWidget.draw();
+        try clockWidget.draw(font7Segment, fontLg);
         slideshowWidget.draw();
-        try agendaWidget.draw();
+        try agendaWidget.draw(font);
 
         rl.endDrawing();
 

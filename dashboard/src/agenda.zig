@@ -42,49 +42,51 @@ pub const AgendaWidget = struct {
         agenda.refreshCalendar();
     }
 
-    pub fn draw(agenda: AgendaWidget) !void {
+    pub fn draw(agenda: AgendaWidget, font: rl.Font) !void {
         const boxY = 230;
-        const boxWidth = @divFloor(rl.getScreenWidth() * 5, 9);
-        const boxHeight = rl.getScreenHeight() - boxY - 20;
+        const boxWidth: f32 = @floatFromInt(@divFloor(rl.getScreenWidth() * 5, 9));
+        const boxHeight: f32 = @floatFromInt(rl.getScreenHeight() - boxY - 20);
+        const textSpacing = 1;
 
-        var y: i32 = boxY + 16;
-        const x = 16;
-        const fontSize = 20;
+        var y: f32 = boxY + 16;
+        const x: f32 = 16;
+        const fontSize: f32 = @floatFromInt(font.baseSize);
 
-        rl.drawLine(0, 230, boxWidth, 230, .dark_gray);
+        rl.drawLine(0, 230, @intFromFloat(boxWidth), 230, .dark_gray);
 
         // Draw error text
         if (agenda.errorText) |err| {
-            rl.drawText(err, x, y + boxHeight - 20, fontSize, .red);
+            rl.drawTextEx(font, err, rl.Vector2.init(x, y + boxHeight - 20), fontSize, textSpacing, .red);
         }
 
         // Empty state
         if (agenda.items.items.len == 0) {
-            rl.drawText("<no events>", x, y, 20, .gray);
+            rl.drawTextEx(font, "<no events>", rl.Vector2.init(x, y), fontSize, textSpacing, .gray);
             return;
         }
 
         var titleBuf: [50:0]u8 = undefined;
-        var datetimeBuf: [8:0]u8 = undefined;
+        var timeStartBuf: [8:0]u8 = undefined;
+        var timeEndBuf: [8:0]u8 = undefined;
         var timerangeBuf: [18:0]u8 = undefined;
         const maxTextChars = 34;
         for (agenda.items.items) |item| {
             switch (item) {
                 .vevent => |e| {
                     const title = agenda.displayTitle("📅", e.title, maxTextChars, &titleBuf);
-                    rl.drawText(title, x, y, fontSize, .white);
+                    rl.drawTextEx(font, title, rl.Vector2.init(x, y), fontSize, textSpacing, .white);
 
                     const timestr = try std.fmt.bufPrintZ(
                         &timerangeBuf,
                         "{s} - {s}",
-                        .{ agenda.displayTime(e.dtstart, &datetimeBuf), agenda.displayTime(e.dtend, &datetimeBuf) },
+                        .{ agenda.displayTime(e.dtstart, &timeStartBuf), agenda.displayTime(e.dtend, &timeEndBuf) },
                     );
-                    const width = rl.measureText(timestr, fontSize);
-                    rl.drawText(timestr, boxWidth - width - x, y, fontSize, .white);
+                    const width: f32 = @floatFromInt(rl.measureText(timestr, @intFromFloat(fontSize)));
+                    rl.drawTextEx(font, timestr, rl.Vector2.init(boxWidth - width - x, y), fontSize, textSpacing, .white);
                 },
                 .vtodo => |t| {
                     const title = agenda.displayTitle("✔", t.title, maxTextChars, &titleBuf);
-                    rl.drawText(title, x, y, fontSize, .white);
+                    rl.drawTextEx(font, title, rl.Vector2.init(x, y), fontSize, textSpacing, .white);
                 },
             }
             y = y + 30;
@@ -110,8 +112,8 @@ pub const AgendaWidget = struct {
         today.time.minute = 0;
         today.time.second = 0;
         today.time.nanosecond = 0;
-        agenda.dtstart = today;
-        agenda.dtend = today.shiftDays(1);
+        agenda.dtstart = today.shiftDays(-10);
+        agenda.dtend = today.shiftDays(10);
     }
 
     fn loadCalendarItems(agenda: *AgendaWidget) !void {

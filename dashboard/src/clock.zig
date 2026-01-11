@@ -13,10 +13,11 @@ pub const ClockWidget = struct {
 
     pub fn update(_: ClockWidget) void {}
 
-    pub fn draw(clock: ClockWidget) !void {
+    pub fn draw(clock: ClockWidget, timeFont: rl.Font, dateFont: rl.Font) !void {
         const width = @divFloor(rl.getScreenWidth() * 5, 9);
-        const timeFontSize = 170;
+        const timeFontSize = 120;
         const dateFontSize = 40;
+        const textSpacing = 1;
 
         var now = dt.datetime.Datetime.now();
         now = now.shiftTimezone(clock.timezone);
@@ -24,18 +25,18 @@ pub const ClockWidget = struct {
         // Time
         var timefmtbuf: [8:0]u8 = undefined;
         const timefmt = try dtlocal.formatTime(now, &timefmtbuf);
-        const timeTextWidth = rl.measureText(timefmt, timeFontSize);
-        const timex = @divFloor(width - timeTextWidth, 2);
-        const timey = 16;
-        rl.drawText(timefmt, timex, timey, timeFontSize, .white);
+        const timeTextMeasure = rl.measureTextEx(timeFont, timefmt, timeFontSize, textSpacing);
+        const timex = @divFloor(width - @as(i32, @intFromFloat(timeTextMeasure.x)), 2);
+        const timey = 28;
+        rl.drawTextEx(timeFont, timefmt, rl.Vector2.init(@floatFromInt(timex), @floatFromInt(timey)), timeFontSize, textSpacing, .white);
 
         // Date
         var datefmtbuf: [64:0]u8 = undefined;
         const datefmt = try dtlocal.formatDate(now, &datefmtbuf);
-        const dateTextWidth = rl.measureText(datefmt, dateFontSize);
-        const datex = @divFloor(width - dateTextWidth, 2);
+        const dateTextMeasure = rl.measureTextEx(dateFont, datefmt, dateFontSize, textSpacing);
+        const datex = @divFloor(width - @as(i32, @intFromFloat(dateTextMeasure.x)), 2);
         const datey = 170;
-        rl.drawText(datefmt, datex, datey, dateFontSize, .white);
+        rl.drawTextEx(dateFont, datefmt, rl.Vector2.init(@floatFromInt(datex), @floatFromInt(datey)), dateFontSize, textSpacing, .white);
     }
 
     pub fn deinit(_: *ClockWidget) !void {}
