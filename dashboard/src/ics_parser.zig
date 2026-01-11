@@ -2,31 +2,59 @@ const std = @import("std");
 const dt = @import("datetime");
 const dtlocal = @import("./datetime.zig");
 
-pub const VEvent = struct { title: []u8 = "", dtstart: ?dt.datetime.Datetime = null, dtend: ?dt.datetime.Datetime = null };
-pub const VTodo = struct { title: []u8 = "", due: ?dt.datetime.Datetime = null };
+pub const VEvent = struct {
+    title: []u8 = "",
+    dtstart: ?dt.datetime.Datetime = null,
+    dtend: ?dt.datetime.Datetime = null,
+    pub fn lessThan(_: void, a: VEvent, b: VEvent) bool {
+        if (b.dtstart) |bdt| {
+            if (a.dtstart) |adt| {
+                return adt.lt(bdt);
+            }
+            return false;
+        }
+        return false;
+    }
+    pub fn deinit(event: VEvent, alloc: std.mem.Allocator) void {
+        alloc.free(event.title);
+    }
+};
+
+pub const VTodo = struct {
+    title: []u8 = "",
+    due: ?dt.datetime.Datetime = null,
+    pub fn lessThan(_: void, _: VTodo, _: VTodo) bool {
+        return false;
+    }
+    pub fn deinit(todo: VTodo, alloc: std.mem.Allocator) void {
+        alloc.free(todo.title);
+    }
+};
+
 pub const CalendarItemTag = enum { vevent, vtodo };
 pub const CalendarItem = union(CalendarItemTag) {
     vevent: VEvent,
     vtodo: VTodo,
 
-    pub fn lessThan(_: void, a: CalendarItem, b: CalendarItem) bool {
-        // TODO: Please do something about this
-        switch (a) {
-            .vevent => |a1| {
-                switch (b) {
-                    .vevent => |b1| {
-                        if (a1.dtstart) |adt| {
-                            if (b1.dtstart) |bdt| {
-                                return adt.lt(bdt);
-                            }
-                        }
-                    },
-                    else => {},
-                }
+    pub fn lessThan(k: void, item1: CalendarItem, item2: CalendarItem) bool {
+        return switch (item1) {
+            .vevent => |ev1| switch (item2) {
+                .vevent => |ev2| VEvent.lessThan(k, ev1, ev2),
+                else => false,
             },
-            else => {},
+            .vtodo => |todo1| switch (item2) {
+                .vtodo => |todo2| VTodo.lessThan(k, todo1, todo2),
+                else => false,
+            },
+        };
+    }
+
+    pub fn deinit(item: *CalendarItem, alloc: std.mem.Allocator) void {
+        switch (item.*) {
+            .vevent => |*e| e.deinit(alloc),
+            .vtodo => |*t| t.deinit(alloc),
         }
-        return false;
+        item.* = undefined;
     }
 };
 
@@ -46,7 +74,7 @@ pub fn parseIcs(ical: []const u8, alloc: std.mem.Allocator) !std.ArrayList(Calen
         } else if (itemMaybe) |*item| {
             if (std.mem.startsWith(u8, line, "END:VEVENT") or std.mem.startsWith(u8, line, "END:VTODO")) {
                 try items.append(alloc, item.*);
-            } else if (std.mem.startsWith(u8, line, "DUE:")) {
+            } else if (std.mem.startsWith(u8, line, "DUE:") or std.mem.startsWith(u8, line, "DUE;")) {
                 std.debug.print("    .due: {s}\n", .{line});
                 const due = line[4..]; // Removing DUE: and DUE;
                 switch (item.*) {
@@ -55,7 +83,7 @@ pub fn parseIcs(ical: []const u8, alloc: std.mem.Allocator) !std.ArrayList(Calen
                     },
                     else => {},
                 }
-            } else if (std.mem.startsWith(u8, line, "DTSTART")) {
+            } else if (std.mem.startsWith(u8, line, "DTSTART:") or std.mem.startsWith(u8, line, "DTSTART;")) {
                 std.debug.print("    .dstart: {s}\n", .{line});
                 const dtstart = line[8..]; // Removing DTSTART: and DTSTART;
                 switch (item.*) {
@@ -64,7 +92,7 @@ pub fn parseIcs(ical: []const u8, alloc: std.mem.Allocator) !std.ArrayList(Calen
                     },
                     else => {},
                 }
-            } else if (std.mem.startsWith(u8, line, "DTEND")) {
+            } else if (std.mem.startsWith(u8, line, "DTEND:") or std.mem.startsWith(u8, line, "DTEND;")) {
                 std.debug.print("    .dend: {s}\n", .{line});
                 const dtend = line[6..]; // Removing DTEND: and DTEND;
                 switch (item.*) {

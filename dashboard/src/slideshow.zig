@@ -5,6 +5,7 @@ const dt = @import("datetime");
 const defaultSlideDurationSeconds: u16 = 30;
 
 pub const SlideshowWidget = struct {
+    alloc: std.mem.Allocator,
     texturesCache: std.StringHashMap(rl.Texture),
     filePaths: std.ArrayList([]u8),
     current: usize = 1,
@@ -39,6 +40,7 @@ pub const SlideshowWidget = struct {
 
         const slideDurationSeconds = defaultSlideDurationSeconds;
         return SlideshowWidget{
+            .alloc = alloc,
             .filePaths = filePaths,
             .texturesCache = std.StringHashMap(rl.Texture).init(alloc),
             .nextSlideTimestamp = std.time.timestamp() + slideDurationSeconds,
@@ -46,34 +48,36 @@ pub const SlideshowWidget = struct {
         };
     }
 
-    pub fn draw(slideshow: *SlideshowWidget, _: std.mem.Allocator) !void {
+    pub fn update(slideshow: *SlideshowWidget) void {
+        const now = std.time.timestamp();
+        if (slideshow.nextSlideTimestamp < now) {
+            const count = slideshow.filePaths.items.len;
+            slideshow.current = @mod(slideshow.current + 1, count);
+            slideshow.nextSlideTimestamp = now + slideshow.slideDurationSeconds;
+        }
+    }
+
+    pub fn draw(slideshow: *SlideshowWidget) void {
         const width = @divFloor(rl.getScreenWidth() * 5, 9);
         const count = slideshow.filePaths.items.len;
 
         if (count == 0) return;
         if (slideshow.current > count) return;
 
-        if (try slideshow.getTexture()) |texture| {
+        if (slideshow.getTexture()) |texture| {
             const imgx = width + slideshow.paddingX;
             const imgy = slideshow.paddingY;
             rl.drawTexture(texture, imgx, imgy, .white);
         }
-
-        // Switch to next image
-        const now = std.time.timestamp();
-        if (slideshow.nextSlideTimestamp < now) {
-            slideshow.current = @mod(slideshow.current + 1, count);
-            slideshow.nextSlideTimestamp = now + slideshow.slideDurationSeconds;
-        }
     }
 
-    fn getTexture(slideshow: *SlideshowWidget) !?rl.Texture {
+    fn getTexture(slideshow: *SlideshowWidget) ?rl.Texture {
         const count = slideshow.filePaths.items.len;
         if (count == 0) return null;
         if (slideshow.current > count) return null;
 
         const path = slideshow.filePaths.items[slideshow.current];
-        return slideshow.texturesCache.get(path) orelse try slideshow.loadImageIntoCache(path);
+        return slideshow.texturesCache.get(path) orelse slideshow.loadImageIntoCache(path) catch null;
     }
 
     fn loadImageIntoCache(slideshow: *SlideshowWidget, path: []u8) !rl.Texture {
@@ -113,11 +117,11 @@ pub const SlideshowWidget = struct {
         return try rl.loadTextureFromImage(img);
     }
 
-    pub fn deinit(slideshow: *SlideshowWidget, alloc: std.mem.Allocator) !void {
+    pub fn deinit(slideshow: *SlideshowWidget) !void {
         for (slideshow.filePaths.items) |p| {
-            alloc.free(p);
+            slideshow.alloc.free(p);
         }
-        slideshow.filePaths.deinit(alloc);
+        slideshow.filePaths.deinit(slideshow.alloc);
         slideshow.texturesCache.deinit();
     }
 };

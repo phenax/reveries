@@ -4,14 +4,16 @@ const dt = @import("datetime");
 const dtlocal = @import("./datetime.zig");
 
 pub const ClockWidget = struct {
-    // TODO: Remove timezone hardcoding
-    timezone: dt.datetime.Timezone = dt.timezones.Asia.Kolkata,
+    timezone: dt.datetime.Timezone,
+    alloc: std.mem.Allocator,
 
-    pub fn new() ClockWidget {
-        return ClockWidget{};
+    pub fn new(alloc: std.mem.Allocator, timezone: dt.datetime.Timezone) ClockWidget {
+        return ClockWidget{ .alloc = alloc, .timezone = timezone };
     }
 
-    pub fn draw(clock: ClockWidget, _: std.mem.Allocator) !void {
+    pub fn update(_: ClockWidget) void {}
+
+    pub fn draw(clock: ClockWidget) !void {
         const width = @divFloor(rl.getScreenWidth() * 5, 9);
         const timeFontSize = 170;
         const dateFontSize = 40;
@@ -35,4 +37,6 @@ pub const ClockWidget = struct {
         const datey = 170;
         rl.drawText(datefmt, datex, datey, dateFontSize, .white);
     }
+
+    pub fn deinit(_: *ClockWidget) !void {}
 };

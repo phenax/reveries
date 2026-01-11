@@ -11,21 +11,22 @@ const Datetime = dt.datetime.Datetime;
 const defaultRefreshIntervalSeconds: i64 = 60;
 
 pub const AgendaWidget = struct {
-    caldavUrl: [:0]const u8 = "http://calendar.local/joe/Work",
+    caldavUrl: [:0]const u8,
     alloc: std.mem.Allocator,
     refreshIntervalSeconds: i64 = defaultRefreshIntervalSeconds,
-    // TODO: Remove hardcoding
-    timezone: dt.datetime.Timezone = dt.timezones.Asia.Kolkata,
+    timezone: dt.datetime.Timezone,
     dtstart: Datetime,
     dtend: Datetime,
     items: std.ArrayList(CalendarItem) = .empty,
     errorText: ?[:0]const u8 = null,
     lastFetchTimestamp: i64 = 0,
 
-    pub fn new(alloc: std.mem.Allocator) !AgendaWidget {
+    pub fn new(alloc: std.mem.Allocator, caldavUrl: [:0]const u8, timezone: dt.datetime.Timezone) !AgendaWidget {
         const refreshIntervalSeconds = defaultRefreshIntervalSeconds;
         var agenda = AgendaWidget{
             .alloc = alloc,
+            .caldavUrl = caldavUrl,
+            .timezone = timezone,
             .dtstart = Datetime.now(),
             .dtend = Datetime.now(),
             .refreshIntervalSeconds = refreshIntervalSeconds,
@@ -36,7 +37,12 @@ pub const AgendaWidget = struct {
         return agenda;
     }
 
-    pub fn draw(agenda: *AgendaWidget, _: std.mem.Allocator) !void {
+    pub fn update(agenda: *AgendaWidget) void {
+        agenda.updateDateRange();
+        agenda.refreshCalendar();
+    }
+
+    pub fn draw(agenda: AgendaWidget) !void {
         const boxY = 230;
         const boxWidth = @divFloor(rl.getScreenWidth() * 5, 9);
         const boxHeight = rl.getScreenHeight() - boxY - 20;
@@ -45,8 +51,7 @@ pub const AgendaWidget = struct {
         const x = 16;
         const fontSize = 20;
 
-        // rl.drawRectangleLines(0, 230, boxWidth, boxHeight, .red);
-        rl.drawLine(0, 230, boxWidth, 230, .gray);
+        rl.drawLine(0, 230, boxWidth, 230, .dark_gray);
 
         // Draw error text
         if (agenda.errorText) |err| {
@@ -56,7 +61,6 @@ pub const AgendaWidget = struct {
         // Empty state
         if (agenda.items.items.len == 0) {
             rl.drawText("<no events>", x, y, 20, .gray);
-            agenda.refreshCalendar();
             return;
         }
 
@@ -85,9 +89,6 @@ pub const AgendaWidget = struct {
             }
             y = y + 30;
         }
-
-        agenda.updateDateRange();
-        agenda.refreshCalendar();
     }
 
     fn refreshCalendar(agenda: *AgendaWidget) void {
@@ -103,7 +104,8 @@ pub const AgendaWidget = struct {
     }
 
     pub fn updateDateRange(agenda: *AgendaWidget) void {
-        var today = dt.datetime.Datetime.now().shiftDays(-2); // TODO: Remove shift
+        // TODO: Remove shift
+        var today = Datetime.now();
         today.time.hour = 0;
         today.time.minute = 0;
         today.time.second = 0;
@@ -113,6 +115,8 @@ pub const AgendaWidget = struct {
     }
 
     fn loadCalendarItems(agenda: *AgendaWidget) !void {
+        for (agenda.items.items) |*item|
+            item.deinit(agenda.alloc);
         agenda.items.clearAndFree(agenda.alloc);
 
         var events = try agenda.fetchEvents();
@@ -126,41 +130,51 @@ pub const AgendaWidget = struct {
     }
 
     fn fetchEvents(agenda: *AgendaWidget) !std.ArrayList(CalendarItem) {
-        var events = try agenda.searchCaldavWithRetry(try std.fmt.allocPrint(agenda.alloc,
+        const startDt = try dtlocal.formatISO8601Basic(agenda.alloc, agenda.dtstart);
+        defer agenda.alloc.free(startDt);
+        const endDt = try dtlocal.formatISO8601Basic(agenda.alloc, agenda.dtend);
+        defer agenda.alloc.free(endDt);
+        const filter = try std.fmt.allocPrint(agenda.alloc,
             \\<C:comp-filter name="VCALENDAR">
             \\  <C:time-range start="{s}" end="{s}"/>
             \\  <C:comp-filter name="VEVENT" />
             \\</C:comp-filter>
-        , .{
-            try dtlocal.formatISO8601Basic(agenda.alloc, agenda.dtstart),
-            try dtlocal.formatISO8601Basic(agenda.alloc, agenda.dtend),
-        }));
+        , .{ startDt, endDt });
+        defer agenda.alloc.free(filter);
+
+        var events = try agenda.searchCaldavWithRetry(filter);
         defer events.deinit(agenda.alloc);
+
         return try filterCalendarItems(agenda.alloc, events, agenda.dtstart, agenda.dtend);
     }
 
     fn fetchTodos(agenda: *AgendaWidget) !std.ArrayList(CalendarItem) {
-        var tasks = try agenda.searchCaldavWithRetry(try std.fmt.allocPrint(agenda.alloc,
+        const filter = try std.fmt.allocPrint(agenda.alloc,
             \\<C:comp-filter name="VCALENDAR">
             \\  <C:comp-filter name="VTODO" />
             \\</C:comp-filter>
-        , .{}));
+        , .{});
+        defer agenda.alloc.free(filter);
+
+        var tasks = try agenda.searchCaldavWithRetry(filter);
         defer tasks.deinit(agenda.alloc);
+
         return try filterCalendarItems(agenda.alloc, tasks, agenda.dtstart, agenda.dtend);
     }
 
     fn searchCaldavWithRetry(agenda: *AgendaWidget, filter: []u8) !std.ArrayList(CalendarItem) {
         var retries: u8 = 0;
-        blk: while (true) {
+        retry: while (true) {
             retries = retries + 1;
-            const result = agenda.searchCaldav(filter) catch |err| {
-                if (retries < 3) {
-                    continue :blk;
+            return agenda.searchCaldav(filter) catch |err| {
+                if (retries < 5) {
+                    std.debug.print("[log] retrying {d}...\n", .{retries});
+                    std.Thread.sleep(1 * std.time.ns_per_s);
+                    continue :retry;
                 } else {
                     return err;
                 }
             };
-            return result;
         }
     }
 
@@ -188,6 +202,7 @@ pub const AgendaWidget = struct {
             \\  </C:filter>
             \\</C:calendar-query>
         , .{filter});
+        defer agenda.alloc.free(requestBody);
 
         var writer = conn.writer();
         try writer.print("{s} {s} HTTP/1.1\r\n", .{ "REPORT", path });
@@ -204,7 +219,8 @@ pub const AgendaWidget = struct {
 
         var reader = conn.reader();
         const responseRaw = try reader.allocRemaining(agenda.alloc, .unlimited);
-        var resp = try agenda.parseResponse(agenda.alloc, responseRaw);
+        defer agenda.alloc.free(responseRaw);
+        var resp = try agenda.parseResponse(responseRaw);
         std.debug.print(":::::: {s}...\n", .{responseRaw[0..@min(responseRaw.len, 500)]});
 
         var doc = try xml.tree.parse(agenda.alloc, &resp.body, null);
@@ -214,13 +230,15 @@ pub const AgendaWidget = struct {
 
         var walker = doc.walkElementsByName("C:calendar-data");
         while (walker.next()) |el| {
-            const newItems = try ics_parser.parseIcs(el.text(), agenda.alloc);
+            var newItems = try ics_parser.parseIcs(el.text(), agenda.alloc);
+            defer newItems.deinit(agenda.alloc);
             try items.appendSlice(agenda.alloc, newItems.items);
         }
 
         return items;
     }
 
+    // Manual filter needed because caldav api is dumb
     fn filterCalendarItems(alloc: std.mem.Allocator, events: std.ArrayList(CalendarItem), dtstart: Datetime, dtend: Datetime) !std.ArrayList(CalendarItem) {
         var filteredItems: std.ArrayList(CalendarItem) = .empty;
 
@@ -228,15 +246,17 @@ pub const AgendaWidget = struct {
             switch (item) {
                 .vtodo => |*t| {
                     if (t.due) |due| {
-                        if (due.gte(dtstart) and due.lte(dtend)) {
+                        if (dtlocal.between(due, dtstart, dtend)) {
                             try filteredItems.append(alloc, item);
                         }
                     }
                 },
                 .vevent => |*e| {
                     if (e.dtstart) |evStart| {
-                        if (e.dtend) |evEnd| {
-                            if (evStart.gte(dtstart) and evEnd.lte(dtend)) {
+                        if (dtlocal.between(evStart, dtstart, dtend)) {
+                            try filteredItems.append(alloc, item);
+                        } else if (e.dtend) |evEnd| {
+                            if (dtlocal.between(evEnd, dtstart, dtend)) {
                                 try filteredItems.append(alloc, item);
                             }
                         }
@@ -253,7 +273,7 @@ pub const AgendaWidget = struct {
         body: std.Io.Reader,
     };
 
-    fn parseResponse(_: *AgendaWidget, _: std.mem.Allocator, response: []u8) !Resp {
+    fn parseResponse(_: *AgendaWidget, response: []u8) !Resp {
         var p = std.http.HeadParser{};
         const readLen = p.feed(response);
         if (p.state != .finished) unreachable;
@@ -264,21 +284,13 @@ pub const AgendaWidget = struct {
     }
 
     pub fn deinit(agenda: *AgendaWidget) !void {
-        for (agenda.items.items) |item| {
-            switch (item) {
-                .vevent => |e| {
-                    agenda.alloc.free(e.title);
-                },
-                .vtodo => |t| {
-                    agenda.alloc.free(t.title);
-                },
-            }
-        }
+        for (agenda.items.items) |*item|
+            item.deinit(agenda.alloc);
         agenda.items.clearAndFree(agenda.alloc);
         agenda.items.deinit(agenda.alloc);
     }
 
-    fn displayTime(agenda: AgendaWidget, datetime: ?dt.datetime.Datetime, buf: []u8) [*:0]const u8 {
+    fn displayTime(agenda: AgendaWidget, datetime: ?Datetime, buf: []u8) [*:0]const u8 {
         if (datetime) |time| {
             const timeAdjusted = time.shiftTimezone(agenda.timezone);
             return dtlocal.formatTime(timeAdjusted, buf) catch "<error>";
