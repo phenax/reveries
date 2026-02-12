@@ -26,7 +26,7 @@ pub fn main() anyerror!void {
     var slideshowWidget = try slideshow.SlideshowWidget.new(alloc);
     defer slideshowWidget.deinit() catch {};
 
-    var agendaWidget = try agenda.AgendaWidget.new(alloc, "http://calendar.local/joe/Work", timezone);
+    var agendaWidget = try agenda.AgendaWidget.new(alloc, "http://calendar.local", "joe/Work", "joe/tasks", timezone);
     defer agendaWidget.deinit() catch {};
 
     rl.initWindow(screenWidth, screenHeight, "dashboard");

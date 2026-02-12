@@ -11,7 +11,9 @@ const Datetime = dt.datetime.Datetime;
 const defaultRefreshIntervalSeconds: i64 = 60;
 
 pub const AgendaWidget = struct {
-    caldavUrl: [:0]const u8,
+    caldavServerUrl: [:0]const u8,
+    caldavEventsListName: []const u8,
+    caldavTodosListName: []const u8,
     alloc: std.mem.Allocator,
     refreshIntervalSeconds: i64 = defaultRefreshIntervalSeconds,
     timezone: dt.datetime.Timezone,
@@ -21,11 +23,13 @@ pub const AgendaWidget = struct {
     errorText: ?[:0]const u8 = null,
     lastFetchTimestamp: i64 = 0,
 
-    pub fn new(alloc: std.mem.Allocator, caldavUrl: [:0]const u8, timezone: dt.datetime.Timezone) !AgendaWidget {
+    pub fn new(alloc: std.mem.Allocator, caldavServerUrl: [:0]const u8, caldavEventsListName: []const u8, caldavTodosListName: []const u8, timezone: dt.datetime.Timezone) !AgendaWidget {
         const refreshIntervalSeconds = defaultRefreshIntervalSeconds;
         var agenda = AgendaWidget{
             .alloc = alloc,
-            .caldavUrl = caldavUrl,
+            .caldavServerUrl = caldavServerUrl,
+            .caldavEventsListName = caldavEventsListName,
+            .caldavTodosListName = caldavTodosListName,
             .timezone = timezone,
             .dtstart = Datetime.now(),
             .dtend = Datetime.now(),
@@ -154,7 +158,7 @@ pub const AgendaWidget = struct {
         , .{ startDt, endDt });
         defer agenda.alloc.free(filter);
 
-        var events = try agenda.searchCaldavWithRetry(filter);
+        var events = try agenda.searchCaldavWithRetry(agenda.caldavEventsListName, filter);
         defer events.deinit(agenda.alloc);
 
         return try filterCalendarItems(agenda.alloc, events, agenda.dtstart, agenda.dtend);
@@ -168,19 +172,19 @@ pub const AgendaWidget = struct {
         , .{});
         defer agenda.alloc.free(filter);
 
-        var tasks = try agenda.searchCaldavWithRetry(filter);
+        var tasks = try agenda.searchCaldavWithRetry(agenda.caldavTodosListName, filter);
         defer tasks.deinit(agenda.alloc);
 
         return try filterCalendarItems(agenda.alloc, tasks, agenda.dtstart, agenda.dtend);
     }
 
-    fn searchCaldavWithRetry(agenda: *AgendaWidget, filter: []u8) !std.ArrayList(CalendarItem) {
+    fn searchCaldavWithRetry(agenda: *AgendaWidget, listName: []const u8, filter: []u8) !std.ArrayList(CalendarItem) {
         const maxRetries = 5;
         var retries: u8 = 0;
         var retryDelay: u64 = 1 * std.time.ns_per_s;
         retry: while (true) {
             retries = retries + 1;
-            return agenda.searchCaldav(filter) catch |err| {
+            return agenda.searchCaldav(listName, filter) catch |err| {
                 if (retries < maxRetries) {
                     std.debug.print("[log] retrying {d}...\n", .{retries});
                     std.Thread.sleep(retryDelay);
@@ -193,11 +197,14 @@ pub const AgendaWidget = struct {
         }
     }
 
-    fn searchCaldav(agenda: *AgendaWidget, filter: []u8) !std.ArrayList(CalendarItem) {
+    fn searchCaldav(agenda: *AgendaWidget, listName: []const u8, filter: []u8) !std.ArrayList(CalendarItem) {
         var client = std.http.Client{ .allocator = agenda.alloc };
         defer client.deinit();
 
-        const uri = try std.Uri.parse(agenda.caldavUrl);
+        const apiUrl = try std.fmt.allocPrint(agenda.alloc, "{s}/{s}", .{ agenda.caldavServerUrl, listName });
+        std.debug.print("{s}\n", .{apiUrl});
+        defer agenda.alloc.free(apiUrl);
+        const uri = try std.Uri.parse(apiUrl);
         const host = try uri.getHostAlloc(agenda.alloc);
         const port = uri.port orelse 80;
         const path = uri.path.toRawMaybeAlloc(agenda.alloc) catch "/";
