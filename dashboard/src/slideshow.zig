@@ -113,6 +113,7 @@ pub const SlideshowWidget = struct {
 
         rl.imageCrop(&img, rl.Rectangle.init(@floor(offsetX), @floor(offsetY), @floor(imgWidth - 2 * offsetX), @floor(imgHeight - 2 * offsetY)));
         rl.imageResize(&img, sw, sh);
+        rl.imageColorTint(&img, rl.Color.init(255, 235, 220, 255));
 
         return try rl.loadTextureFromImage(img);
     }

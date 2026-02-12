@@ -5,13 +5,15 @@ const Datetime = dt.datetime.Datetime;
 
 // Move datetime specific things to its own module
 pub fn parseIsoDatetime(str: []const u8, timezone: ?dt.datetime.Timezone) error{ InvalidDate, InvalidTime }!Datetime {
-    if (str.len < 15) return error.InvalidDate;
+    if (str.len != 8 and str.len < 15) return error.InvalidDate;
+    const includesTime = str.len >= 15;
+    std.debug.print("::::{s} {s} {s} {s}\n", .{ str, str[0..4], str[4..6], str[6..8] });
     const year = std.fmt.parseInt(u32, str[0..4], 10) catch return error.InvalidDate;
     const month = std.fmt.parseInt(u32, str[4..6], 10) catch return error.InvalidDate;
     const day = std.fmt.parseInt(u32, str[6..8], 10) catch return error.InvalidDate;
-    const hour = std.fmt.parseInt(u32, str[9..11], 10) catch return error.InvalidTime;
-    const minute = std.fmt.parseInt(u32, str[11..13], 10) catch return error.InvalidTime;
-    const second = std.fmt.parseInt(u32, str[13..15], 10) catch return error.InvalidTime;
+    const hour = if (includesTime) std.fmt.parseInt(u32, str[9..11], 10) catch 0 else 0;
+    const minute = if (includesTime) std.fmt.parseInt(u32, str[11..13], 10) catch 0 else 0;
+    const second = if (includesTime) std.fmt.parseInt(u32, str[13..15], 10) catch 0 else 0;
     return Datetime.create(year, month, day, hour, minute, second, 0, timezone);
 }
 

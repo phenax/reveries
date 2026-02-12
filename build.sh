@@ -58,8 +58,14 @@ build-dashboard() {
   nix-shell -p pkgsCross.aarch64-multiplatform.libGL \
              pkgsCross.aarch64-multiplatform.libdrm \
              pkgsCross.aarch64-multiplatform.libgbm \
+             pkgsCross.aarch64-multiplatform.mesa \
              pkgsCross.aarch64-multiplatform.pkg-config \
     --run 'zig build -Doptimize=ReleaseSmall -Dtarget=aarch64-linux-musl -Dplatform=drm'
+}
+
+install-dashboard() {
+  rsync -ahvP --delete ./dashboard/zig-out/bin/dashboard bingobango@192.168.0.130:/home/bingobango/dashboard
+  _runuser killall dashboard
 }
 
 cmd="$1"; shift 1;
@@ -71,8 +77,11 @@ case "$cmd" in
   write-image) write-image ;;
   setup-via-ssh) setup-via-ssh ;;
   build-dashboard) build-dashboard ;;
+  install-dashboard) install-dashboard ;;
+  restart) _runuser killall dashboard ;;
   shell) _runuser ;;
   run) _runuser "$@" ;;
+  sync-album) rsync -ahvP --delete --modify-window=2 ~/Pictures/slideshow/ bingobango@192.168.0.130:/home/bingobango/Pictures/slideshow/ ;;
   runroot) _run "$@" ;;
 esac
 

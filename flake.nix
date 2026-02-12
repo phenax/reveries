@@ -31,6 +31,7 @@
           ];
           LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
           PKG_CONFIG_ALLOW_CROSS = 1;
+          # ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/.zig-global-cache";
         };
     in
     flake-utils.lib.eachDefaultSystem

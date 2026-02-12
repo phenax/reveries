@@ -52,6 +52,7 @@ pub const AgendaWidget = struct {
         const x: f32 = 16;
         const fontSize: f32 = @floatFromInt(font.baseSize);
 
+        // Separator line
         rl.drawLine(0, 230, @intFromFloat(boxWidth), 230, .dark_gray);
 
         // Draw error text
@@ -99,35 +100,44 @@ pub const AgendaWidget = struct {
         std.debug.print("::::: REFRESHING AGENDA\n", .{});
         agenda.lastFetchTimestamp = std.time.timestamp();
         agenda.errorText = "";
-        agenda.loadCalendarItems() catch |e| {
-            agenda.errorText = std.fmt.allocPrintSentinel(agenda.alloc, "Error loading calendar items: {s}", .{@errorName(e)}, 0) catch @errorName(e);
-            std.debug.print("{s}", .{@errorName(e)});
-        };
+        agenda.loadCalendarItems() catch |e| agenda.setError("items", e);
     }
 
     pub fn updateDateRange(agenda: *AgendaWidget) void {
-        // TODO: Remove shift
         var today = Datetime.now();
         today.time.hour = 0;
         today.time.minute = 0;
         today.time.second = 0;
         today.time.nanosecond = 0;
-        agenda.dtstart = today.shiftDays(-10);
-        agenda.dtend = today.shiftDays(10);
+        agenda.dtstart = today;
+        agenda.dtend = today.shiftDays(1);
+    }
+
+    fn setError(agenda: *AgendaWidget, name: []const u8, e: anyerror) void {
+        agenda.errorText = std.fmt.allocPrintSentinel(agenda.alloc, "Error loading {s}: {s}", .{ name, @errorName(e) }, 0) catch @errorName(e);
+        std.debug.print("{s}", .{@errorName(e)});
     }
 
     fn loadCalendarItems(agenda: *AgendaWidget) !void {
+        var events = agenda.fetchEvents() catch |e| blk: {
+            agenda.setError("events", e);
+            break :blk std.ArrayList(CalendarItem){};
+        };
+        defer events.deinit(agenda.alloc);
+        std.mem.sort(CalendarItem, events.items, {}, CalendarItem.lessThan);
+
+        var todos = agenda.fetchTodos() catch |e| blk: {
+            agenda.setError("tasks", e);
+            break :blk std.ArrayList(CalendarItem){};
+        };
+        defer todos.deinit(agenda.alloc);
+
+        // Update calendar items
         for (agenda.items.items) |*item|
             item.deinit(agenda.alloc);
         agenda.items.clearAndFree(agenda.alloc);
 
-        var events = try agenda.fetchEvents();
-        defer events.deinit(agenda.alloc);
-        std.mem.sort(CalendarItem, events.items, {}, CalendarItem.lessThan);
         try agenda.items.appendSlice(agenda.alloc, events.items);
-
-        var todos = try agenda.fetchTodos();
-        defer todos.deinit(agenda.alloc);
         try agenda.items.appendSlice(agenda.alloc, todos.items);
     }
 
@@ -165,13 +175,16 @@ pub const AgendaWidget = struct {
     }
 
     fn searchCaldavWithRetry(agenda: *AgendaWidget, filter: []u8) !std.ArrayList(CalendarItem) {
+        const maxRetries = 5;
         var retries: u8 = 0;
+        var retryDelay: u64 = 1 * std.time.ns_per_s;
         retry: while (true) {
             retries = retries + 1;
             return agenda.searchCaldav(filter) catch |err| {
-                if (retries < 5) {
+                if (retries < maxRetries) {
                     std.debug.print("[log] retrying {d}...\n", .{retries});
-                    std.Thread.sleep(1 * std.time.ns_per_s);
+                    std.Thread.sleep(retryDelay);
+                    retryDelay = @intFromFloat(@as(f64, @floatFromInt(retryDelay)) * 1.4);
                     continue :retry;
                 } else {
                     return err;

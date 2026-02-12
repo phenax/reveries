@@ -11,6 +11,7 @@
           - vim
           - curl
           - wget
+          - git
           - seatd
           - seatd-openrc
           - xwayland
@@ -28,6 +29,9 @@
           - dbus
           - polkit
           - util-linux
+          - rsync
+          - acpid
+          - acpid-openrc
         state: present
         update_cache: yes
     - name: Configure user groups
@@ -43,6 +47,11 @@
     - name: Enable and start seatd service
       service:
         name: seatd
+        state: started
+        enabled: yes
+    - name: Ensure acpid is enabled
+      service:
+        name: acpid
         state: started
         enabled: yes
     - name: Configure tty1 for autologin in /etc/inittab
