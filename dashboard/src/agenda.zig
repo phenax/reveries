@@ -78,7 +78,7 @@ pub const AgendaWidget = struct {
         for (agenda.items.items) |item| {
             switch (item) {
                 .vevent => |e| {
-                    const title = agenda.displayTitle("📅", e.title, maxTextChars, &titleBuf);
+                    const title = try agenda.displayTitle("", e.title, .empty, maxTextChars, &titleBuf);
                     rl.drawTextEx(font, title, rl.Vector2.init(x, y), fontSize, textSpacing, .white);
 
                     const timestr = try std.fmt.bufPrintZ(
@@ -90,7 +90,7 @@ pub const AgendaWidget = struct {
                     rl.drawTextEx(font, timestr, rl.Vector2.init(boxWidth - width - x, y), fontSize, textSpacing, .white);
                 },
                 .vtodo => |t| {
-                    const title = agenda.displayTitle("✔", t.title, maxTextChars, &titleBuf);
+                    const title = try agenda.displayTitle("TODO", t.title, t.tags, maxTextChars, &titleBuf);
                     rl.drawTextEx(font, title, rl.Vector2.init(x, y), fontSize, textSpacing, .white);
                 },
             }
@@ -113,8 +113,8 @@ pub const AgendaWidget = struct {
         today.time.minute = 0;
         today.time.second = 0;
         today.time.nanosecond = 0;
-        agenda.dtstart = today;
-        agenda.dtend = today.shiftDays(1);
+        agenda.dtstart = today.shiftDays(-5);
+        agenda.dtend = today.shiftDays(5);
     }
 
     fn setError(agenda: *AgendaWidget, name: []const u8, e: anyerror) void {
@@ -268,7 +268,7 @@ pub const AgendaWidget = struct {
             switch (item) {
                 .vtodo => |*t| {
                     if (t.due) |due| {
-                        if (dtlocal.between(due, dtstart, dtend)) {
+                        if (due.lte(dtend)) {
                             try filteredItems.append(alloc, item);
                         }
                     }
@@ -321,9 +321,12 @@ pub const AgendaWidget = struct {
         }
     }
 
-    fn displayTitle(_: AgendaWidget, prefix: []const u8, title: []u8, maxTextChars: usize, buf: []u8) [:0]const u8 {
+    fn displayTitle(agenda: AgendaWidget, prefix: []const u8, title: []u8, tags: std.ArrayList([]const u8), maxTextChars: usize, buf: []u8) ![:0]const u8 {
         const ellipsis = if (title.len > maxTextChars) "..." else "";
-        const titletrimmed = if (title.len > maxTextChars) title[0..maxTextChars] else title;
-        return std.fmt.bufPrintZ(buf, "{s} {s}{s}", .{ prefix, titletrimmed, ellipsis }) catch "<error>";
+        const tagsStr = std.mem.join(agenda.alloc, " ", tags.items) catch "";
+        const titleFull = std.fmt.allocPrint(agenda.alloc, "{s} {s}", .{ title, tagsStr }) catch "<error>";
+        defer agenda.alloc.free(titleFull);
+        const titleTrimmed = if (title.len > maxTextChars) titleFull[0..maxTextChars] else titleFull;
+        return std.fmt.bufPrintZ(buf, "{s} {s}{s}", .{ prefix, titleTrimmed, ellipsis }) catch "<error>";
     }
 };

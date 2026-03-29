@@ -23,6 +23,7 @@ pub const VEvent = struct {
 pub const VTodo = struct {
     title: []u8 = "",
     due: ?dt.datetime.Datetime = null,
+    tags: std.ArrayList([]const u8) = .empty,
     pub fn lessThan(_: void, _: VTodo, _: VTodo) bool {
         return false;
     }
@@ -111,6 +112,20 @@ pub fn parseIcs(ical: []const u8, alloc: std.mem.Allocator) !std.ArrayList(Calen
                     .vtodo => |*t| {
                         t.title = try alloc.dupe(u8, title);
                     },
+                }
+            } else if (std.mem.startsWith(u8, line, "CATEGORIES:")) {
+                const categories = line[11..]; // Removing CATEGORIES:
+                std.debug.print("    .tags: {s}\n", .{categories});
+                switch (item.*) {
+                    .vtodo => |*t| {
+                        var tags = std.mem.splitScalar(u8, categories, ',');
+                        while (tags.next()) |tag| {
+                            const tagCopy = try alloc.alloc(u8, tag.len);
+                            @memcpy(tagCopy, tag);
+                            try t.tags.append(alloc, tagCopy);
+                        }
+                    },
+                    else => {},
                 }
             }
         }
