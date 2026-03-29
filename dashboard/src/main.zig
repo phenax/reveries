@@ -26,7 +26,7 @@ pub fn main() anyerror!void {
     var slideshowWidget = try slideshow.SlideshowWidget.new(alloc);
     defer slideshowWidget.deinit() catch {};
 
-    var agendaWidget = try agenda.AgendaWidget.new(alloc, "http://calendar.local", "joe/Work", "joe/tasks", timezone);
+    var agendaWidget = try agenda.AgendaWidget.new(alloc, "http://192.168.0.117:9314", "joe/Work", "joe/tasks", timezone);
     defer agendaWidget.deinit() catch {};
 
     rl.initWindow(screenWidth, screenHeight, "dashboard");
@@ -37,7 +37,7 @@ pub fn main() anyerror!void {
     rl.setTextureFilter(font7Segment.texture, rl.TextureFilter.trilinear);
 
     const fontData = @embedFile("./static/3270NerdFontMono-Regular.ttf");
-    const font = try rl.loadFontFromMemory(".ttf", fontData, 20, null);
+    const font = try rl.loadFontFromMemory(".ttf", fontData, 24, null);
     defer rl.unloadFont(font);
     rl.setTextureFilter(font.texture, rl.TextureFilter.trilinear);
     const fontLg = try rl.loadFontFromMemory(".ttf", fontData, 60, null);
