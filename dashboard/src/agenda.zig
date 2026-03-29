@@ -78,7 +78,7 @@ pub const AgendaWidget = struct {
         for (agenda.items.items) |item| {
             switch (item) {
                 .vevent => |e| {
-                    const title = try agenda.displayTitle("", e.title, .empty, maxTextChars, &titleBuf);
+                    const title = try agenda.getTitleText(e.title, maxTextChars, &titleBuf);
                     rl.drawTextEx(font, title, rl.Vector2.init(x, y), fontSize, textSpacing, .white);
 
                     const timestr = try std.fmt.bufPrintZ(
@@ -90,12 +90,18 @@ pub const AgendaWidget = struct {
                     rl.drawTextEx(font, timestr, rl.Vector2.init(boxWidth - width - x, y), fontSize, textSpacing, .white);
                 },
                 .vtodo => |t| {
-                    const title = try agenda.displayTitle("TODO", t.title, t.tags, maxTextChars, &titleBuf);
-                    rl.drawTextEx(font, title, rl.Vector2.init(x, y), fontSize, textSpacing, .white);
+                    const prefixWidth = agenda.drawPrefix("TODO", rl.Vector2.init(x, y), font, fontSize, .red);
+                    const title = try agenda.getTitleText(t.title, maxTextChars, &titleBuf);
+                    rl.drawTextEx(font, title, rl.Vector2.init(x + prefixWidth, y), fontSize, textSpacing, .white);
                 },
             }
             y = y + 30;
         }
+    }
+
+    fn drawPrefix(_: AgendaWidget, text: [:0]const u8, pos: rl.Vector2, font: rl.Font, fontSize: f32, color: rl.Color) f32 {
+        rl.drawTextEx(font, text, pos, fontSize, 1, color);
+        return @floatFromInt(rl.measureText(text, @intFromFloat(fontSize)));
     }
 
     fn refreshCalendar(agenda: *AgendaWidget) void {
@@ -321,12 +327,9 @@ pub const AgendaWidget = struct {
         }
     }
 
-    fn displayTitle(agenda: AgendaWidget, prefix: []const u8, title: []u8, tags: std.ArrayList([]const u8), maxTextChars: usize, buf: []u8) ![:0]const u8 {
+    fn getTitleText(_: AgendaWidget, title: []u8, maxTextChars: usize, buf: []u8) ![:0]const u8 {
         const ellipsis = if (title.len > maxTextChars) "..." else "";
-        const tagsStr = std.mem.join(agenda.alloc, " ", tags.items) catch "";
-        const titleFull = std.fmt.allocPrint(agenda.alloc, "{s} {s}", .{ title, tagsStr }) catch "<error>";
-        defer agenda.alloc.free(titleFull);
-        const titleTrimmed = if (title.len > maxTextChars) titleFull[0..maxTextChars] else titleFull;
-        return std.fmt.bufPrintZ(buf, "{s} {s}{s}", .{ prefix, titleTrimmed, ellipsis }) catch "<error>";
+        const titleTrimmed = if (title.len > maxTextChars) title[0..maxTextChars] else title;
+        return std.fmt.bufPrintZ(buf, "{s}{s}", .{ titleTrimmed, ellipsis }) catch "<error>";
     }
 };
